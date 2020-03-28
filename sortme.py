@@ -889,11 +889,10 @@ class sorter():
     type_s = property(get_type_s, set_type_s, del_type_s, "type_s's docstring")
               
         
-    
-    
-srt = sorter("copy")
+mode = "copy"
+srt = sorter(mode)
 
-srt.sort_dir(r"X:\NEW STUFF\MYPHONE")
+srt.sort_dir(r"YOUR_DIRECTORY_HERE")
 
 
 
