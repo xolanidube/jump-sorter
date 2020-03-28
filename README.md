@@ -1,7 +1,13 @@
 # jump-sorter
+
 Automatic on the fly sorting tool.
 
 jump-sorter is a python program that sorts out your data from a selected directory, directory of directories or a specific file.
+
+We use nudenet to clasify indecent images from user images folder
+
+Just <b>pip install nudenet</b>
+
 
 Its still in its infancy, it can sort files and also it uses artificail intelligence to do advanced sorting suching as detecting and recognizing objects in images. it can also sort out pornographic materials using a nudity detection model.
 
