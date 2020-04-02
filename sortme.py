@@ -1,6 +1,6 @@
 # MIT License
 # 
-# Copyright (c) 2020 Xolani Dube 
+# Copyright (c) 2020 Xolani Dube and Surprise Ngoveni
 # 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -38,31 +38,25 @@
 
 import os
 import threading
-
-
 import time
 from shutil import *
 import dicttoxml
 from datetime import datetime
 from xml.etree import ElementTree as ET
 from nudenet import NudeClassifier
+from nudenet import NudeDetector
 import cv2
+from PySide2 import *
+from PySide2.QtGui import *
+from PySide2.QtWidgets import *
+import sched, time
+import face as fc
+import numpy as np
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+__version__ = '0.0.1'
+__author__ = 'Emmanuel Xolani Dube'
+__contact__ = "xolanidube575@gmail.com"
 
 #THERE MUST BE A DIRECTORY ENTERED FIRST
 #THE PROGRAM SHOULD CRAWL OVER ALL THE DIRECTORIES AND FILES IF ANY IN THE LISTED DIRECTORY ABOVE
@@ -72,50 +66,68 @@ import cv2
 #
 
 
-
-
-
-
-
 class sorter():
     
     def __init__(self, mode, specific_formats=None, specific_folder=None):
         
         self.mode = mode;
         self.lst_of = {}
-        self.doc_ext = ['.doc', '.docx', '.odt', '.pdf', '.xls', '.xlsx', '.ods', '.ppt', '.pptx', '.txt', '.pps', '.odp', '.key', '.xlr', '.ods', '.rtf', '.tex', '.wks', '.wps', '.wpd']
-        self.img_ext = ['.jpg', '.jpeg', '.jpe', '.jif', '.jfif', '.jfi', '.png', '.gif', '.webp', '.tiff','.tif', '.psd', '.raw', '.arw', '.cr2', '.nrw', '.k25', '.bmp', '.dib', '.heif', '.heic', '.ind', '.indd', '.indt', '.jp2','.j2k','jpf','jpx','.jpm', '.mj2', '.svg', '.svgz', '.ai', '.eps']
-        self.vid_ext = ['.webm','.mpg','.mpeg','.mpe','.mpv', '.mp4','.m4p','.m4v', '.avi', '.wmv', '.mov', '.qt', '.flv', '.swf', 'avchd', '.3gp', '.3g2','.h264', '.m4v', '.mkv', '.mov', '.rm', '.swf', '.vob']
-        self.sound_ext = ['.pcm', '.wav', '.aiff', '.mp3', '.aac', '.flac', '.wma', '.3ga', '.aif', '.cda', '.mid', '.midi', '.mpa', '.ogg', '.wpl']
-        self.zip_ext = ['.7z', '.zip', '.z', '.tar.gz', '.arj', '.deb', '.pkg', '.rar', '.rpm']
-        self.code_ext = ['.py','.java','.cpp', '.html', '.htm','.asp','.aspx', '.css', '.cgi', '.pl','.js', '.jsp', '.php', '.xhtml', '.c', '.class', '.cs', '.h', '.sh', '.swift', '.vb', '.cfm', '.cer']
-        self.media_ext = ['.bin', '.dmg', '.iso','.toast', '.vcd']
-        self.data_ext = ['.csv', '.dat', '.db', '.dbf', '.log', '.mdb', '.sav', '.sql', '.tar', '.xml']
-        self.app_ext = ['.apk','.bat','.bin','.cgi','.pl','.com','.exe','.gadget','.jar','.wsf']
-        self.font_ext = ['.fnt','.fon','.otf','.ttf']
-        self.sys_ext = ['.bak', '.cab', '.cfg', '.cpl', '.cur', '.dll', '.dmp', '.drv', '.icns', '.ico', '.ini', '.ink', '.msi', '.sys', '.tmp']
-        self.flags = ['.peta','.seto']
+        self.doc_ext = []
+        self.img_ext = []
+        self.vid_ext = []
+        self.sound_ext = []
+        self.zip_ext = []
+        self.code_ext = []
+        self.media_ext = []
+        self.data_ext = []
+        self.app_ext = []
+        self.font_ext = []
+        self.sys_ext = []
+        self.flags = []
         self.specifics = []
         self.all_files = {}
         self.errors = []
         self.file_structure = {}
+        self.load_ext()
         self.now = datetime.now()
         self.dt_string = self.now.strftime("%d-%m-%Y %Hh%M")
         self.nude_classifier = NudeClassifier()
+        self.nude_detector = NudeDetector()
+        self.s = sched.scheduler(time.time, time.sleep)
         
         self.number_of_files = 0
         self.time_taken = 0
         self.prev_dir = None
         self.curr_dir = None
+        self.faces = None
+        self.points = None
         
 
         self.walked_dir = "checked.dir"
         self.all_walked = []
+        self.load_walked()
 
+        self.available_dirs = []
+        self.non_available_dirs = []
+        self.attach = ":/"
+        self.let_dir = ["A","B","C","D","E","F","G","H","I","J","K",
+                        "L","M","N","O","P","Q","R","S","T","U","V",
+                        "W","X","Y","Z"]
+
+        self.runt = threading.Thread(target=self.find_all_dirs)
+        self.runt.start()
+        
         self.master_ext = [self.doc_ext, self.img_ext, self.vid_ext, self.sound_ext, self.zip_ext, self.code_ext, self.media_ext, self.data_ext, self.app_ext, self.font_ext, self.sys_ext, self.flags]
 
         self.type_s = ["Documents", "Images", "Videos", "Sounds", "Compressed_Files", "Programming_Files", "Discs_Media", "Databases", "Applications", "Fonts", "System_Files", "Infected"]
 
+
+        self.face_detection = fc.Detection()
+        self.face_recognition = fc.Recognition()
+        self.face_verification = fc.Verification()
+        
+        
+        
         if specific_formats is not None and specific_folder is not None:
             self.specifics = self.specifics + specific_formats
             self.master_ext.append(self.specifics)
@@ -445,9 +457,223 @@ class sorter():
     def del_type_s(self):
         del self.__type_s
 
-    def load_walked(self):
-        return 0
+    def run_t(self):
+        self.s.enter(60, 1, self.find_all_dirs, (self.s,));
+        self.s.run()
+    
+    def find_all_dirs(self):
+        
+        for i in range(len(self.let_dir)):
+            dr = self.let_dir[i]+self.attach
+            if os.path.isdir(dr):
+                self.available_dirs.append(dr)
+            else:
+                self.non_available_dirs.append(dr)
 
+
+        #self.s.enter(60, 1, self.find_all_dirs, (self.s,))
+
+
+    def load_ext(self):
+        extensions_path = "C:/Users/GabhaDi/eclipse-workspace2/project sortMyFiles/src/extensions/"
+        name = ["application","code","data","document","flags","font","image",
+                "media","sound","system","video","zip"]
+        #full_path = os.path.abspath(extensions_path)
+
+        i = 0
+
+        print("The full to your extensions is ", extensions_path)
+
+        if os.path.isdir(extensions_path) is True:
+            print("loading all extensions...")
+            list_files = os.listdir(extensions_path)
+            
+            for file in list_files:
+
+
+                if "document" in file:
+
+                    with open(extensions_path+file) as f:
+                        for line in f:
+                            self.doc_ext.append(line.rstrip("\n"))
+
+                    print("Successfully loaded document exts, size : ", len(self.doc_ext), self.doc_ext)
+
+
+                if "image" in file:
+
+                    with open(extensions_path+file) as f:
+                        for line in f:
+                            self.img_ext.append(line.rstrip("\n"))
+
+                    print("Successfully loaded image exts, size : ", len(self.img_ext), self.img_ext)
+
+
+                if "video" in file:
+
+                    with open(extensions_path+file) as f:
+                        for line in f:
+                            self.vid_ext.append(line.rstrip("\n"))
+
+                    print("Successfully loaded video exts, size : ", len(self.vid_ext), self.vid_ext)
+
+                
+               
+                if "application" in file:
+                    
+                    with open(extensions_path+file) as f:
+                        for line in f:
+                            self.app_ext.append(line.rstrip("\n"))
+
+                    print("Successfully loaded app exts, size : ", len(self.app_ext), self.app_ext)
+               
+                if "code" in file:
+
+                    with open(extensions_path+file) as f:
+                        for line in f:
+                            self.code_ext.append(line.rstrip("\n"))
+
+                    print("Successfully loaded source code exts, size : ", len(self.code_ext), self.code_ext)
+
+                
+                    
+                if "data" in file:
+
+                    with open(extensions_path+file) as f:
+                        for line in f:
+                            self.data_ext.append(line.rstrip("\n"))
+
+                    print("Successfully loaded database exts, size : ", len(self.data_ext), self.data_ext)
+
+                
+
+                
+                
+
+               
+                    
+                            
+                if "flags" in file:
+
+                    with open(extensions_path+file) as f:
+                        for line in f:
+                            self.flags.append(line.rstrip("\n"))
+
+                    print("Successfully loaded dangerous and malicious exts, size : ", len(self.flags), self.flags)
+
+
+                
+
+
+                if "font" in file:
+
+                    with open(extensions_path+file) as f:
+                        for line in f:
+                            self.font_ext.append(line.rstrip("\n"))
+
+                    print("Successfully loaded font exts, size : ", len(self.font_ext), self.font_ext)
+
+                
+
+                
+
+              
+
+                if "media" in file:
+
+                    with open(extensions_path+file) as f:
+                        for line in f:
+                            self.media_ext.append(line.rstrip("\n"))
+
+                    print("Successfully loaded media exts, size : ", len(self.media_ext), self.media_ext)
+
+                
+
+                if "sound" in file:
+
+                    with open(extensions_path+file) as f:
+                        for line in f:
+                            self.sound_ext.append(line.rstrip("\n"))
+
+                    print("Successfully loaded sound and audio exts, size : ", len(self.sound_ext), self.sound_ext)
+
+               
+
+                if "system" in file:
+
+                    with open(extensions_path+file) as f:
+                        for line in f:
+                            self.sys_ext.append(line.rstrip("\n"))
+
+                    print("Successfully loaded system exts, size : ", len(self.sys_ext), self.sys_ext)
+
+                
+
+                
+
+                
+
+                if "zip" in file:
+
+                    with open(extensions_path+file) as f:
+                        for line in f:
+                            self.zip_ext.append(line.rstrip("\n"))
+
+                    print("Successfully loaded archive and compressions exts, size : ", len(self.zip_ext), self.zip_ext)
+
+                
+            print("Successfully loaded all extensions...")
+                
+    def load_walked(self):
+        
+        if os.path.isfile(self.walked_dir):
+                
+            with open(self.walked_dir) as f:
+                for line in f:
+                    self.all_walked.append(line.rstrip("\n"))
+        else:
+            print("File doesnt't exist.")
+
+	
+    def load_session(self, dir):
+            
+        if len(self.all_files) != 0:
+                self.all_files.clear()
+        all_files = []	
+        pc = []
+        if os.path.isdir(dir) == True:
+            dir_list = os.listdir(dir)
+            session = "session.sess"
+            session_cp = "session_cp.sess"
+            if(session in dir_list) is True and (session_cp in dir_list) is True:
+                with open(session) as f:
+                    for line in f:
+                        all_files.append([int(n) for n in line.strip().split(',')])
+                    for pair in all_files:
+                        try:
+                            self.all_files[pair[0]] = pair[1]
+                        except IndexError:
+                            print("A line in the file doesn't have enough entries")
+                                        
+                    with open(session_cp) as fn:
+                        for line in fn:
+                            pc.append([int(n) for n in line.strip().split(',')])
+                        
+                        for pair in pc:
+                            try:
+                                self.prev_dir = pair[0]
+                                self.curr_dir = pair[1]
+                            except IndexError:
+                                print("A line in the file doesn't have enough entries")
+                    print(f"Successfully loaded sessions for from files {session} and {session_cp} from directory {dir}")
+                    return 1
+            else:
+                    print(f"Something went wrong...i couldnt find the files {session} and {session_cp} in dir")
+                    return -1
+        else:
+            print(f"Something went wrong...invalid directory provided ERROR : {dir} doesn't exist")
+            return -1
+	
     def add_dir(self, new_dir):
 
         
@@ -473,7 +699,8 @@ class sorter():
     
 
     def files(self, directory):
-        
+        total_files = 0
+        total_directories = 0
         if os.path.isdir(directory) == True:
             dir_list = os.listdir(directory)
             print("Listing dir")
@@ -482,14 +709,7 @@ class sorter():
             
             for file in dir_list:
                 print(file)
-                        
-                if os.path.isdir(os.path.abspath(file)) == True:
-                        #new_dir_list = os.listdir(file)
-                        print()
-                        print()
-                        print(os.path.dirname(file))
-                        self.files(os.path.abspath(file)) 
-                else:
+                if os.path.isfile(os.path.abspath(file) == True):
                     i = 0
                         
                     for extensions in self.master_ext:
@@ -499,6 +719,15 @@ class sorter():
                             if ext in file:
                                     
                                 self.lst_of[file] = self.type_s[i]
+								
+                if os.path.isdir(os.path.abspath(file)) == True:
+                        #new_dir_list = os.listdir(file)
+                        print()
+                        print()
+                        print(os.path.dirname(file))
+                        self.files(os.path.abspath(file)) 
+				
+                
                         
                             
                             
@@ -631,10 +860,106 @@ class sorter():
     # 2. Move them from their curr directory to their previous directories
     # 3. Verify and check if the operation was successful
     # 4. Save the progress for later use
+
+
+    def check_for_faces(self, directory):
+
+        (self.im_width, self.im_height) = (160, 160)
+        face_pic = 0
+        file_sess = "face.check"
+        print("Checking for faces...", directory)
+
+        directory = directory + "/images"
+
+        face_ = directory + "/" + "faces"
+
+        file_s = directory + "/" + file_sess
+
+        if os.path.exists(file_s) is False:
+            f = open(file_s, 'w+')
+        else:
+            f = open(file_s, 'a+')
+
+        previous_session = open(file_s, 'r').readlines()
+        previous_session = [i.strip() for i in previous_session]
+        print(file_s, len(previous_session), previous_session )
+        
+        
+
+
+        if os.path.isdir(face_) is False:
+            os.mkdir(face_)
+
+
+        
+        
+        if os.path.isdir(directory) is True:
+            images = os.listdir(directory)
+
+            for each_pic in images:
+                 self.pin = (sorted([int(n[: n.find(".")]) for n in os.listdir(face_) if n[0] != "."] + [0])[-1] + 1)
+                 if (each_pic in previous_session) is True:
+                    print("Skipping file", each_pic, "already scanned")
+                    continue
+                    
+                 elif each_pic not in previous_session:
+                    f.write(each_pic+"\n")
+
+                    try:
+                        image = cv2.imread(os.path.abspath(directory+"/"+each_pic), 1)
+
+                        normal = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+                        normal = cv2.cvtColor(normal, cv2.COLOR_RGB2BGR)
+                       
+                            
+
+                        if self.face_recognition.detection(image) is None:
+                            faces = None
+
+                        if self.face_recognition.detection(image) is not None:
+                            faces, points = self.face_recognition.detection(image)
+
+                        if faces is not None:
+                            for face in faces:
+                                face_bb = face.bounding_box.astype(int)
+
+                                yourface = normal[max(0, face_bb[1]) : min(face_bb[3], normal.shape[0] - 1),
+                                                 max(0, face_bb[0]) : min(face_bb[2], normal.shape[1] - 1),]
+
+                                for i in range(points.shape[1]):
+                                    pts = points[:, i].astype(np.int32)
+                                    for j in range(pts.size // 2):
+                                        pt = (pts[j], pts[5 + j])
+                                        cv2.circle(image, center=pt, radius=1, color=(255, 0, 0), thickness=2,)
+
+
+
+                                face_resize = cv2.resize(yourface, (self.im_width, self.im_height))
+
+                                cv2.rectangle(image, (face_bb[0], face_bb[1]), (face_bb[2], face_bb[3]),(22, 20, 60), 1,)
+                                
+                                
+                                cv2.imwrite("%s/%s.png" % (face_, self.pin), face_resize)
+
+                                print(f"Face detected in image {each_pic} now creating face in {face_+'/'+str(self.pin)}.png")
+
+                                face_pic += 1
+                        
+                                
+                                cv2.destroyAllWindows()
+                    except:
+                        continue
+                 else:
+                    f.write(each_pic+"\n")
+                
+
+        print(f"Process done. Created {face_pic} face files to {face_+'/'}")                    
+        
+
     
     def check_for_porn(self, directory):
         
-
+        
         profane_pic = 0
         file_sess = "profanity.check"
         print("Checking for nudity and pornographic material...", directory)
@@ -661,11 +986,7 @@ class sorter():
             images = os.listdir(directory)
             
             for each_pic in images:
-                
-                
-                    
-                
-                    
+                 
                     if (each_pic in previous_session) is True:
                         print("Skipping file", each_pic, "already scanned")
                         continue
@@ -689,14 +1010,25 @@ class sorter():
                                     print(f"Indecency detected ", f"Am not sure about Image ({each_pic}) should i move it to {profanity}...")
 
                                     image = cv2.imread(path, 1)
-                                    cv2.imshow("SUGGESTION", image)
+                                    width = 320
+                                    height = 320
+                                    
+                                    dim = (width, height)
+                                    try:
+                                        resized_img = cv2.resize(image, dim, cv2.INTER_AREA)
+                                        cv2.imshow("SUGGESTION", resized_img)
+                                    except:
+                                        print(e)
+                                        continue
+                                    print(f" Move {path} Press(y) to move or n to continue?")
                                     k = cv2.waitKey(0)
-                                    print(f" Move {path} Press(y) to move or n ?")
+                                    
 
                                     if(k == ord('y')):
                                         move(path, os.path.abspath(profanity))
                                         profane_pic += 1
                                         cv2.destroyAllWindows()
+                                        print(f"Suggestion moved {path} to {profanity}")
                                     else:
                                         cv2.destroyAllWindows()
                                         continue
@@ -744,13 +1076,13 @@ class sorter():
 
 
         if os.path.exists(full_filename) is False:
-            f = open(full_filename, 'w+')
-            fp = open(full_fn, 'w+')
+            f = open(full_filename, 'w+', encoding="utf-8")
+            fp = open(full_fn, 'w+', encoding="utf-8")
             fp.write(prev+","+curr+"\n")
         else:
-            f = open(full_filename, 'a+')
-            fp = open(full_fn, 'w+')
-            fp.write(prev+","+self.curr+"\n")
+            f = open(full_filename, 'a+', encoding="utf-8")
+            fp = open(full_fn, 'w+', encoding="utf-8")
+            fp.write(prev+","+curr+"\n")
 
         _checked_ = open(full_filename, 'r').readlines()
         _checked_ = [i.strip() for i in _checked_]
@@ -774,9 +1106,15 @@ class sorter():
 
     
     def sort_dir(self, directory):
+
+       
+            
+            
+
         
         self.prev_dir = directory
- 
+
+         
         #given a dir, check if its a dir or not
         print("Starting sorting operation...", directory)
         if os.path.isdir(directory) == True:
@@ -810,13 +1148,20 @@ class sorter():
                     for ext in extensions:
                             
                         for file in files:
-                                
-                            if ext in file:
-                                #print("ROOT ", root, "DIRECTORIES : ", dirs, "FILES ", files)
-                                self.lst_of[os.path.join(root, file)] = self.type_s[i]
-                                
-                                #self.all_files.append(file)
-                                self.all_files[file] = os.path.join(root, file)
+
+                            try:
+                                EXT_ = file.split(".")[1]
+                                EXT_ = "."+EXT_
+                                if EXT_ == ext:
+                                    #print("ROOT ", root, "DIRECTORIES : ", dirs, "FILES ", files)
+                                    self.lst_of[os.path.join(root, file)] = self.type_s[i]
+                                    print("TYPE : ", self.type_s[i], "FILE EXT FOUND : ", ext, "FILE NAME : ",os.path.join(root, file), "ITER : ", i , EXT_)
+                                    
+                                    #self.all_files.append(file)
+                                    self.all_files[file] = os.path.join(root, file)
+                            except:
+                                print("ERROR WITH FILE : ", file)
+                                continue
                                 
                                 
                     
@@ -832,8 +1177,25 @@ class sorter():
             
             
             new_directory = input("Please enter name of new directory...")
-                        
-            new_directory = "X:/" + new_directory+"_"+os.path.basename(directory)
+
+            print("Available dirs please choose which dir to " , self.mode , " to?")
+            self.runt.join()
+            for i in range(len(self.available_dirs)):
+                print(i, self.available_dirs[i])
+
+            choice =  input("Please choose directory?")
+            
+            while True:
+                
+                if int(choice) < 0 or int(choice) > len(self.available_dirs):
+                    print("Invalid choice!!!, Please choose again.")
+                    choice =  input("Please choose directory?")
+                    continue
+                else:
+                    break
+                
+                    
+            new_directory = self.available_dirs[int(choice)] + new_directory+"_"+os.path.basename(directory)
 
                         
             self.curr_dir = new_directory
@@ -858,7 +1220,15 @@ class sorter():
                 self.rollback(self.all_files, self.prev_dir, self.curr_dir)
                 
                 print("Rollback operation successfully files where placed back to their original places.")
+
             threading.Thread(target=self.check_for_porn(new_directory)).start()
+
+        else:
+
+            print("Directory doesn't exist : ", directory, "Please enter a valid directory!")
+
+            path = input("Please enter the directory or folder or file path you want to sort?")
+            srt.sort_dir(rf"{path}")
     
     mode = property(get_mode, set_mode, del_mode, "mode's docstring")
     lst_of = property(get_lst_of, set_lst_of, del_lst_of, "lst_of's docstring")
@@ -889,12 +1259,60 @@ class sorter():
     type_s = property(get_type_s, set_type_s, del_type_s, "type_s's docstring")
               
         
-mode = "copy"
-srt = sorter(mode)
+    
+mode = input("Please enter the mode (copy or move)?")
+time.sleep(5)
+srt = sorter(mode.lower())
 
-srt.sort_dir(r"YOUR_DIRECTORY_HERE")
+while True:
 
+    
+    print("1. Check for faces\n",
+          "2. Check for Indecency\n",
+          "3. Sort a folder/directory\n",
+          "#. Press 0 to Exit!\n")
+    choice = input("Enter please your option:")
+    if int(choice) is 1:
+        for i in range(len(srt.all_walked)):
+            print(i, srt.all_walked[i])
+        opt = input("\nPlease choose a directory\n")
+        if int(opt) < 0 or int(opt) > len(srt.all_walked):
+            print("invalid option!!!, please enter a valid option!")
+            continue
+            
+        else:
 
+            srt.check_for_faces(srt.all_walked[int(opt)])
+
+        continue
+
+    elif int(choice) is 2:
+        for i in range(len(srt.all_walked)):
+            print(i, srt.all_walked[i])
+        opt = input("\nPlease choose a directory\n")
+        if int(opt) < 0 or int(opt) > len(srt.all_walked):
+            print("invalid option!!!, please enter a valid option!")
+            continue
+            
+        else:
+
+            srt.check_for_porn(srt.all_walked[int(opt)])
+
+        continue
+    elif int(choice) is 3:
+        
+
+        path = input("Please enter the directory or folder or file path you want to sort?")
+        srt.sort_dir(rf"{path}")
+    elif int(choice) is 0:
+        break
+    else:
+        print("Invalid choice please choose a valid option!")
+        continue
+
+            
+            
+            
 
 
 
