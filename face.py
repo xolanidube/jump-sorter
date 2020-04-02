@@ -44,7 +44,7 @@ from sklearn.svm.libsvm import predict
 
 gpu_memory_fraction = 0.3
 facenet_model_checkpoint = os.path.dirname(__file__) + f"\\20180402-114759.pb"
-classifier_model = os.path.dirname(__file__) + f"\\employees.pkl" 
+classifier_model = os.path.dirname(__file__) + f"\\faces.pkl" 
 debug = False
 
 
